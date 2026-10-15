@@ -44,3 +44,23 @@ jobs:
         with:
           name: CASA-Suite-Windows-EXE
           path: out/CASA Suite.exe
+
+  release:
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dl
+      - name: Publish latest test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cp dl/CASA-Suite-Android-APK/app-debug.apk CASA-Suite.apk
+          cp "dl/CASA-Suite-Windows-EXE/CASA Suite.exe" CASA-Suite.exe
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest CASA-Suite.apk CASA-Suite.exe \
+            --title "Latest test build" --notes "Direct downloads (no zip)." --prerelease
