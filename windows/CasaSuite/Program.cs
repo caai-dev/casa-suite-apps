@@ -24,11 +24,11 @@ internal sealed class MainForm : Form
     private const string TestHost = "casa.test";
 
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
-    private readonly bool _live;
+    private readonly bool _test;
 
     public MainForm(string[] args)
     {
-        _live = args.Contains("--live");
+        _test = args.Contains("--test");
         Text = "CASA Suite";
         Width = 1280;
         Height = 820;
@@ -90,7 +90,7 @@ internal sealed class MainForm : Form
             OpenExternal(e.Uri);
         };
 
-        if (_live)
+        if (!_test)
         {
             core.Navigate(LiveUrl);
         }

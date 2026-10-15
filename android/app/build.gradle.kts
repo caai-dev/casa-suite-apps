@@ -3,9 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// CASA_START env var decides the first page. Default = built-in test page.
+// CASA_START env var overrides the first page. Default = live CASA Suite.
 val startUrl: String = System.getenv("CASA_START")?.takeIf { it.isNotBlank() }
-    ?: "file:///android_asset/test.html"
+    ?: "https://casa-suite-event.apper.so"
 
 android {
     namespace = "com.casaaudit.suite"
@@ -15,8 +15,8 @@ android {
         applicationId = "com.casaaudit.suite"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1-test"
+        versionCode = 2
+        versionName = "0.2"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
     }
 
