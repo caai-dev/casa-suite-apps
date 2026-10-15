@@ -194,11 +194,28 @@ internal sealed class MainForm : Form
         query = query.Trim();
         if (query.Length == 0) return null;
 
-        // 1) exact name  2) exact AppID  3) shortest name that contains the query
+        // 1) exact name  2) exact AppID  3) same words ignoring brand prefix
+        // 4) every query word is a whole word of the app name  ("Teams" -> "Microsoft Teams")
+        // 5) every app-name word is in the query                 ("Microsoft Word" -> "Word")
+        // Whole words only, so "Word" never matches "WordPad".
+        var q = Words(query);
         return apps.FirstOrDefault(a => a.Name.Equals(query, StringComparison.OrdinalIgnoreCase))
             ?? apps.FirstOrDefault(a => a.AppId.Equals(query, StringComparison.OrdinalIgnoreCase))
-            ?? apps.Where(a => a.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-                   .OrderBy(a => a.Name.Length).FirstOrDefault();
+            ?? apps.FirstOrDefault(a => Words(a.Name).SetEquals(q))
+            ?? apps.Where(a => q.Count > 0 && q.IsSubsetOf(Words(a.Name)))
+                   .OrderBy(a => a.Name.Length).FirstOrDefault()
+            ?? apps.Where(a => { var w = Words(a.Name); return w.Count > 0 && w.IsSubsetOf(q); })
+                   .OrderByDescending(a => a.Name.Length).FirstOrDefault();
+    }
+
+    private static readonly HashSet<string> Brands = new(StringComparer.OrdinalIgnoreCase)
+        { "microsoft", "ms", "google", "the", "app", "desktop", "for", "windows", "pc" };
+
+    private static HashSet<string> Words(string s)
+    {
+        var parts = System.Text.RegularExpressions.Regex.Split(s.ToLowerInvariant(), "[^a-z0-9]+")
+            .Where(p => p.Length > 0 && !Brands.Contains(p));
+        return new HashSet<string>(parts);
     }
 
     private async Task<bool> OpenAppAsync(string query)
