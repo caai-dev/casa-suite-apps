@@ -5,7 +5,7 @@ plugins {
 
 // CASA_START env var overrides the first page. Default = live CASA Suite.
 val startUrl: String = System.getenv("CASA_START")?.takeIf { it.isNotBlank() }
-    ?: "https://casa-suite-event.apper.so"
+    ?: "https://casa-suite-protocol.apper.so"
 
 android {
     namespace = "com.casaaudit.suite"

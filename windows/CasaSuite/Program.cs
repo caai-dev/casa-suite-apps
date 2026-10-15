@@ -20,7 +20,7 @@ internal sealed record StartApp(string Name, string AppId);
 
 internal sealed class MainForm : Form
 {
-    private const string LiveUrl = "https://casa-suite-event.apper.so";
+    private const string LiveUrl = "https://casa-suite-protocol.apper.so";
     private const string TestHost = "casa.test";
 
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
@@ -40,7 +40,7 @@ internal sealed class MainForm : Form
     private static bool IsTrusted(string? url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return false;
-        return u.Scheme == "https" && (u.Host == "casa-suite-event.apper.so" || u.Host == TestHost);
+        return u.Scheme == "https" && (u.Host == "casa-suite-protocol.apper.so" || u.Host == TestHost);
     }
 
     private async Task InitAsync()

@@ -17,7 +17,7 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
 
     // Pages allowed to stay inside the app (and to see the native bridge).
-    private val allowedHosts = setOf("casa-suite-event.apper.so")
+    private val allowedHosts = setOf("casa-suite-protocol.apper.so")
 
     private fun isInternal(uri: Uri): Boolean {
         if (uri.scheme == "file" && (uri.path ?: "").startsWith("/android_asset/")) return true
