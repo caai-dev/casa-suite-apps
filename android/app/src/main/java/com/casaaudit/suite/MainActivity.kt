@@ -79,9 +79,55 @@ class MainActivity : Activity() {
     }
 
     private fun openExternally(uri: Uri) {
+        if (uri.scheme == "intent") {
+            openIntentUrl(uri.toString())
+            return
+        }
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (_: ActivityNotFoundException) {
+        }
+    }
+
+    /**
+     * Handles Chrome-style intent:// links from older web code:
+     * 1) if the target package is installed, launch it directly
+     * 2) else try the intent itself
+     * 3) else open S.browser_fallback_url (e.g. Play Store page)
+     */
+    private fun openIntentUrl(url: String) {
+        val parsed = try {
+            Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+        } catch (_: Exception) {
+            return
+        }
+        val fallback = parsed.getStringExtra("browser_fallback_url")
+
+        // market://launch?id=<pkg> via Play Store -> launch <pkg> ourselves
+        val marketPkg = parsed.data?.takeIf { it.scheme == "market" }?.getQueryParameter("id")
+        val pkg = marketPkg ?: parsed.`package`
+        if (pkg != null && pkg != "com.android.vending") {
+            packageManager.getLaunchIntentForPackage(pkg)?.let {
+                try {
+                    startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return
+                } catch (_: Exception) {
+                }
+            }
+        }
+        if (marketPkg == null) {
+            try {
+                parsed.addCategory(Intent.CATEGORY_BROWSABLE)
+                parsed.component = null
+                parsed.selector = null
+                startActivity(parsed.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return
+            } catch (_: Exception) {
+            }
+        }
+        if (!fallback.isNullOrBlank()) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fallback)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: Exception) {
+            }
         }
     }
 
