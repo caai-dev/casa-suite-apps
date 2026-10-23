@@ -15,13 +15,27 @@ android {
         applicationId = "com.casaaudit.suite"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "1.0"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
     }
 
     buildFeatures {
         buildConfig = true
+    }
+
+    // Fixed signing key (from GitHub secrets) so new APKs install over old ones.
+    // Without it, the build falls back to the per-machine debug key.
+    val ksFile = System.getenv("CASA_KEYSTORE_FILE")
+    val ksPass = System.getenv("CASA_KEYSTORE_PASS")
+    if (!ksFile.isNullOrBlank() && !ksPass.isNullOrBlank() && file(ksFile).exists()) {
+        val casa = signingConfigs.create("casa") {
+            storeFile = file(ksFile)
+            storePassword = ksPass
+            keyAlias = "casa"
+            keyPassword = ksPass
+        }
+        buildTypes.getByName("debug").signingConfig = casa
     }
 
     sourceSets {

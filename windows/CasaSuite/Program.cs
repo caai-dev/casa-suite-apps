@@ -33,6 +33,7 @@ internal sealed class MainForm : Form
         Width = 1280;
         Height = 820;
         StartPosition = FormStartPosition.CenterScreen;
+        try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
         Controls.Add(_web);
         Load += async (_, _) => await InitAsync();
     }

@@ -17,8 +17,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
-      - name: Build debug APK
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.CASA_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/casa.jks"
+            echo "CASA_KEYSTORE_FILE=$RUNNER_TEMP/casa.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::CASA_KEYSTORE_B64 secret not set - APK uses a temporary debug key"
+          fi
+      - name: Build APK
         working-directory: android
+        env:
+          CASA_KEYSTORE_PASS: ${{ secrets.CASA_KEYSTORE_PASS }}
         run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
@@ -40,10 +52,17 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true
           -o out
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc windows\installer\casa-suite.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
-          name: CASA-Suite-Windows-EXE
-          path: out/CASA Suite.exe
+          name: CASA-Suite-Windows
+          path: out-installer/CASA-Suite-Setup.exe
 
   release:
     needs: [android, windows]
@@ -54,13 +73,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dl
-      - name: Publish latest test release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           cp dl/CASA-Suite-Android-APK/app-debug.apk CASA-Suite.apk
-          cp "dl/CASA-Suite-Windows-EXE/CASA Suite.exe" CASA-Suite.exe
+          cp dl/CASA-Suite-Windows/CASA-Suite-Setup.exe CASA-Suite-Setup.exe
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest CASA-Suite.apk CASA-Suite.exe \
-            --title "Latest test build" --notes "Direct downloads (no zip)." --prerelease
+          gh release create latest CASA-Suite.apk CASA-Suite-Setup.exe \
+            --title "CASA Suite" --latest \
+            --notes "Android: CASA-Suite.apk - Windows: CASA-Suite-Setup.exe"
