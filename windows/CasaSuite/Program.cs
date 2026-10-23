@@ -199,18 +199,27 @@ internal sealed class MainForm : Form
         // 4) every query word is a whole word of the app name  ("Teams" -> "Microsoft Teams")
         // 5) every app-name word is in the query                 ("Microsoft Word" -> "Word")
         // Whole words only, so "Word" never matches "WordPad".
+        // Steps 4 and 5 compare with brand words KEPT (FullWords), so "Google Drive"
+        // can never match "Proton Drive" just because both contain "Drive".
         var q = Words(query);
+        var qFull = FullWords(query);
         return apps.FirstOrDefault(a => a.Name.Equals(query, StringComparison.OrdinalIgnoreCase))
             ?? apps.FirstOrDefault(a => a.AppId.Equals(query, StringComparison.OrdinalIgnoreCase))
-            ?? apps.FirstOrDefault(a => Words(a.Name).SetEquals(q))
-            ?? apps.Where(a => q.Count > 0 && q.IsSubsetOf(Words(a.Name)))
+            ?? apps.FirstOrDefault(a => q.Count > 0 && Words(a.Name).SetEquals(q))
+            ?? apps.Where(a => qFull.Count > 0 && qFull.IsSubsetOf(FullWords(a.Name)))
                    .OrderBy(a => a.Name.Length).FirstOrDefault()
-            ?? apps.Where(a => { var w = Words(a.Name); return w.Count > 0 && w.IsSubsetOf(q); })
+            ?? apps.Where(a => { var w = Words(a.Name); return w.Count > 0 && w.IsSubsetOf(qFull); })
                    .OrderByDescending(a => a.Name.Length).FirstOrDefault();
     }
 
     private static readonly HashSet<string> Brands = new(StringComparer.OrdinalIgnoreCase)
         { "microsoft", "ms", "google", "the", "app", "desktop", "for", "windows", "pc" };
+
+    private static readonly HashSet<string> Stop = new(StringComparer.OrdinalIgnoreCase) { "the", "app", "for" };
+
+    private static HashSet<string> FullWords(string s) =>
+        new(System.Text.RegularExpressions.Regex.Split(s.ToLowerInvariant(), "[^a-z0-9]+")
+            .Where(p => p.Length > 0 && !Stop.Contains(p)));
 
     private static HashSet<string> Words(string s)
     {
