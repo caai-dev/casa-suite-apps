@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using CasaApps;
 
 namespace Casana;
 
@@ -50,6 +51,7 @@ internal sealed class MainForm : Form
 
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
     private readonly string _startUrl;
+    private Updater? _updater;
 
     public MainForm(string[] args)
     {
@@ -81,8 +83,9 @@ internal sealed class MainForm : Form
 
     private async Task InitAsync()
     {
-        var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Casana", "WebView2");
+        var appDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Casana");
+        var dataDir = Path.Combine(appDir, "WebView2");
         var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
         await _web.EnsureCoreWebView2Async(env);
         var core = _web.CoreWebView2;
@@ -96,16 +99,27 @@ internal sealed class MainForm : Form
                 OpenExternal(e.Uri);
             }
         };
+        // New tabs (window.open / target=_blank):
+        //  - Casana pages open in this window, other sites in the normal browser
+        //  - file previews (blob:, data:, or about:blank that then loads the file's
+        //    storage link) open in WebView2's own small window, like a browser tab
         core.NewWindowRequested += (_, e) =>
         {
+            if (!e.Uri.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return;
             e.Handled = true;
             if (IsTrusted(e.Uri)) core.Navigate(e.Uri);
             else OpenExternal(e.Uri);
         };
 
-        // File pickers (attachments) and downloads (exports, backups) are handled by
-        // WebView2 itself, like in Edge; downloads go to the user's Downloads folder.
-        core.Navigate(_startUrl);
+        // File pickers (attachments), downloads (exports, backups) and copy to
+        // clipboard are handled by WebView2 itself, like in Edge.
+        // Always ask the server for the page itself, so a new Publish shows up at once.
+        core.NavigateWithWebResourceRequest(
+            env.CreateWebResourceRequest(_startUrl, "GET", null, "Cache-Control: no-cache"));
+
+        // "New update available" card for this app (see common/windows/Updater.cs).
+        _updater = new Updater(this, "casana", "Casana", appDir);
+        _ = _updater.CheckAsync();
     }
 
     private static void OpenExternal(string url)

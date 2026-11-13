@@ -15,8 +15,8 @@ android {
         applicationId = "com.casaaudit.suite"
         minSdk = 24
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.2"
+        versionCode = 7
+        versionName = "1.3"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
     }
 
@@ -41,6 +41,8 @@ android {
     sourceSets {
         getByName("main") {
             assets.srcDir("../../shared")
+            // Shared code for both CASA apps (update checker).
+            java.srcDir("../../common/android")
         }
     }
 

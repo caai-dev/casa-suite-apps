@@ -11,10 +11,12 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.casaaudit.common.UpdateChecker
 
 class MainActivity : Activity() {
 
     private lateinit var web: WebView
+    private lateinit var updater: UpdateChecker
 
     // Pages allowed to stay inside the app (and to see the native bridge).
     private val allowedHosts = setOf("kinetic-casa-suite.apper.so")
@@ -28,6 +30,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         web = WebView(this)
         setContentView(web)
+        updater = UpdateChecker(this, "casa-suite", "CASA Suite", BuildConfig.VERSION_CODE)
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -57,7 +60,13 @@ class MainActivity : Activity() {
         }
 
         if (savedInstanceState != null) web.restoreState(savedInstanceState)
-        else web.loadUrl(BuildConfig.START_URL)
+        // Always ask the server for the page itself, so a new Publish shows up at once.
+        else web.loadUrl(BuildConfig.START_URL, mapOf("Cache-Control" to "no-cache"))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updater.check()
     }
 
     /** Defines window.CasaNative (same shape as the Windows app) on trusted pages only. */

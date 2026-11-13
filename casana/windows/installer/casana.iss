@@ -1,7 +1,7 @@
 ; Casana installer (per-user, no admin needed)
 #define AppVer GetEnv("CASANA_VERSION")
 #if AppVer == ""
-  #define AppVer "1.0.0"
+  #define AppVer "1.1.0"
 #endif
 
 [Setup]
@@ -42,3 +42,5 @@ Root: HKCU; Subkey: "Software\Classes\casana\shell\open\command"; ValueType: str
 
 [Run]
 Filename: "{app}\Casana.exe"; Description: "Open Casana now"; Flags: nowait postinstall skipifsilent
+; In-app updates install quietly; reopen the app when they finish.
+Filename: "{app}\Casana.exe"; Flags: nowait; Check: WizardSilent

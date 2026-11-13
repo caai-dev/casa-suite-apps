@@ -128,9 +128,35 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dl
+      - name: Write versions.json (read by the apps' "update available" card)
+        run: |
+          python3 - <<'EOF'
+          import json, re
+          def gradle(path):
+              s = open(path).read()
+              return int(re.search(r'versionCode\s*=\s*(\d+)', s).group(1)), re.search(r'versionName\s*=\s*"([^"]+)"', s).group(1)
+          def csproj(path):
+              return re.search(r'<Version>([^<]+)</Version>', open(path).read()).group(1)
+          base = "https://github.com/caai-dev/casa-suite-apps/releases/latest/download/"
+          sc, sn = gradle("android/app/build.gradle.kts")
+          cc, cn = gradle("casana/android/app/build.gradle.kts")
+          data = {
+            "casa-suite": {
+              "android": {"versionCode": sc, "versionName": sn, "url": base + "CASA-Suite.apk"},
+              "windows": {"version": csproj("windows/CasaSuite/CasaSuite.csproj"), "url": base + "CASA-Suite-Setup.exe"},
+            },
+            "casana": {
+              "android": {"versionCode": cc, "versionName": cn, "url": base + "Casana.apk"},
+              "windows": {"version": csproj("casana/windows/Casana/Casana.csproj"), "url": base + "Casana-Setup.exe"},
+            },
+          }
+          json.dump(data, open("versions.json", "w"), indent=2)
+          print(json.dumps(data, indent=2))
+          EOF
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -141,6 +167,6 @@ jobs:
           cp dl/Casana-Android-APK/app-debug.apk Casana.apk
           cp dl/Casana-Windows/Casana-Setup.exe Casana-Setup.exe
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest CASA-Suite.apk CASA-Suite-Setup.exe Casana.apk Casana-Setup.exe \
+          gh release create latest CASA-Suite.apk CASA-Suite-Setup.exe Casana.apk Casana-Setup.exe versions.json \
             --title "CASA apps" --latest \
             --notes "CASA Suite: CASA-Suite.apk (Android), CASA-Suite-Setup.exe (Windows). Casana: Casana.apk (Android), Casana-Setup.exe (Windows)."

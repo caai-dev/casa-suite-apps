@@ -1,7 +1,7 @@
 ; CASA Suite installer (per-user, no admin needed)
 #define AppVer GetEnv("CASA_VERSION")
 #if AppVer == ""
-  #define AppVer "1.2.0"
+  #define AppVer "1.3.0"
 #endif
 
 [Setup]
@@ -34,3 +34,5 @@ Name: "{userdesktop}\CASA Suite"; Filename: "{app}\CASA Suite.exe"; Tasks: deskt
 
 [Run]
 Filename: "{app}\CASA Suite.exe"; Description: "Open CASA Suite now"; Flags: nowait postinstall skipifsilent
+; In-app updates install quietly; reopen the app when they finish.
+Filename: "{app}\CASA Suite.exe"; Flags: nowait; Check: WizardSilent

@@ -2,7 +2,10 @@ package com.casaaudit.casana
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -11,6 +14,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -19,16 +23,28 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import com.casaaudit.common.UpdateChecker
 import java.io.File
 
 /**
- * Casana for Android: the live Casana web app in a WebView, plus what a plain
- * WebView lacks - picking files to attach, saving files the app creates
- * (exports, backups), and opening Casana links from other apps (CASA Suite).
+ * Casana for Android: the live Casana web app in a WebView.
+ *
+ * A WebView is a stripped-down browser: by itself it cannot pick files, save
+ * downloads, open popups/new tabs or copy to the clipboard. This class adds
+ * those back in a general way (for whatever the web app does), so Casana
+ * behaves like it does in Chrome:
+ *  - file inputs open the phone's file picker
+ *  - <a download> / blob: files are saved to Downloads and opened
+ *  - window.open(...) (new tab, "about:blank" then a link) works: Casana pages
+ *    open here, other sites in the browser, blob: files in the phone's viewer
+ *  - navigator.clipboard.writeText copies to the phone clipboard
+ *  - Casana links from other apps (CASA Suite) open here
+ *  - a "new update available" card when a newer Casana app is published
  */
 class MainActivity : Activity() {
 
     private lateinit var web: WebView
+    private lateinit var updater: UpdateChecker
     private var fileCallback: ValueCallback<Array<Uri>>? = null
 
     // Pages allowed to stay inside the app. Everything else opens in the browser.
@@ -41,6 +57,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         web = WebView(this)
         setContentView(web)
+        updater = UpdateChecker(this, "casana", "Casana", BuildConfig.VERSION_CODE)
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -49,21 +66,26 @@ class MainActivity : Activity() {
             allowFileAccess = false
             allowContentAccess = false
             mediaPlaybackRequiresUserGesture = true
+            javaScriptCanOpenWindowsAutomatically = true
             setSupportMultipleWindows(false)
         }
-        web.addJavascriptInterface(FileBridge(), "CasanaAndroid")
+        web.addJavascriptInterface(Bridge(), "CasanaAndroid")
 
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
                 if (isInternal(uri)) return false
-                if (uri.scheme == "blob" || uri.scheme == "data") return false
+                if (uri.scheme == "blob" || uri.scheme == "data" || uri.scheme == "about") return false
                 openExternally(uri)
                 return true
             }
 
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                injectShim(view, url)
+            }
+
             override fun onPageFinished(view: WebView, url: String?) {
-                injectDownloadShim(view, url)
+                injectShim(view, url)
             }
         }
 
@@ -94,7 +116,7 @@ class MainActivity : Activity() {
         }
 
         // Files served from a web address: let the browser download them.
-        // blob:/data: files are saved by the shim below (it knows the file name).
+        // blob:/data: files are read by the page shim and saved by Bridge.saveFile.
         web.setDownloadListener { url, _, contentDisposition, mimeType, _ ->
             if (url.startsWith("blob:") || url.startsWith("data:")) {
                 val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
@@ -104,15 +126,26 @@ class MainActivity : Activity() {
             }
         }
 
-        when {
-            savedInstanceState != null -> web.restoreState(savedInstanceState)
-            else -> web.loadUrl(linkFrom(intent) ?: BuildConfig.START_URL)
+        if (savedInstanceState != null) {
+            web.restoreState(savedInstanceState)
+        } else {
+            loadFresh(linkFrom(intent) ?: BuildConfig.START_URL)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updater.check()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        linkFrom(intent)?.let { web.loadUrl(it) }
+        linkFrom(intent)?.let { loadFresh(it) }
+    }
+
+    /** Always ask the server for the page itself, so a new Publish shows up at once. */
+    private fun loadFresh(url: String) {
+        web.loadUrl(url, mapOf("Cache-Control" to "no-cache"))
     }
 
     /** A Casana https link this app was opened with (from CASA Suite or another app). */
@@ -122,25 +155,30 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Web apps save files by clicking a hidden <a download="name" href="blob:...">.
-     * A WebView cannot follow blob: links, so read the file in the page and hand
-     * it to FileBridge.saveFile with its real name.
+     * Browser features a WebView lacks, added inside Casana pages only:
+     * saving blob:/data: files with their real name, window.open, clipboard.
      */
-    private fun injectDownloadShim(view: WebView, url: String?) {
+    private fun injectShim(view: WebView, url: String?) {
         val u = url?.let { Uri.parse(it) } ?: return
         if (!isInternal(u)) return
         val js = """
             (function(){
               if(window.__casanaSave||!window.CasanaAndroid)return;
+              var A=window.CasanaAndroid;
+
+              // Pages often revoke a file link right after clicking it; keep it alive
+              // long enough to be read.
               var revoke=URL.revokeObjectURL;
               URL.revokeObjectURL=function(u){setTimeout(function(){revoke.call(URL,u)},60000)};
+
               window.__casanaSave=function(href,name){
                 fetch(href).then(function(r){return r.blob()}).then(function(b){
                   var fr=new FileReader();
-                  fr.onload=function(){window.CasanaAndroid.saveFile(String(fr.result),name||'download',b.type||'')};
+                  fr.onload=function(){A.saveFile(String(fr.result),name||'',b.type||'')};
                   fr.readAsDataURL(b);
-                }).catch(function(){window.CasanaAndroid.failed(name||'download')});
+                }).catch(function(){A.failed(name||'')});
               };
+
               function wanted(a){return a&&a.hasAttribute&&a.hasAttribute('download')&&/^(blob|data):/.test(a.href||'')}
               var click=HTMLAnchorElement.prototype.click;
               HTMLAnchorElement.prototype.click=function(){
@@ -151,6 +189,35 @@ class MainActivity : Activity() {
                 var a=e.target&&e.target.closest?e.target.closest('a'):null;
                 if(wanted(a)){e.preventDefault();window.__casanaSave(a.href,a.getAttribute('download'))}
               },true);
+
+              // window.open / new tabs: Casana pages here, files in the phone's
+              // viewer, other sites in the browser. Returns a stand-in window so
+              // code like  w=window.open('about:blank'); w.location.href=link  works.
+              function go(v){
+                v=String(v||'');
+                if(!v||v.indexOf('about:')===0)return;
+                if(/^(blob|data):/.test(v)){window.__casanaSave(v,'');return}
+                var a=document.createElement('a');a.href=v;
+                if(a.host===location.host){location.href=a.href}else{A.openExternal(a.href)}
+              }
+              window.open=function(url){
+                var w={closed:false,opener:null,
+                  close:function(){w.closed=true},focus:function(){},blur:function(){},
+                  addEventListener:function(){},removeEventListener:function(){},postMessage:function(){},
+                  document:{write:function(){},writeln:function(){},close:function(){},open:function(){}}};
+                var loc={assign:go,replace:go,reload:function(){},toString:function(){return 'about:blank'}};
+                Object.defineProperty(loc,'href',{get:function(){return 'about:blank'},set:go});
+                Object.defineProperty(w,'location',{get:function(){return loc},set:go});
+                go(url);
+                return w;
+              };
+
+              // Clipboard
+              try{
+                if(navigator.clipboard){
+                  navigator.clipboard.writeText=function(t){A.copy(String(t==null?'':t));return Promise.resolve()};
+                }
+              }catch(e){}
             })();
         """.trimIndent()
         view.evaluateJavascript(js, null)
@@ -184,7 +251,7 @@ class MainActivity : Activity() {
         }
     }
 
-    inner class FileBridge {
+    inner class Bridge {
         /** Saves a file the page created (data: URL) to Downloads and opens it. */
         @JavascriptInterface
         fun saveFile(dataUrl: String?, fileName: String?, mimeType: String?) {
@@ -198,9 +265,9 @@ class MainActivity : Activity() {
             } catch (_: Exception) {
                 failed(fileName); return
             }
-            val name = safeName(fileName)
             val mime = mimeType?.takeIf { it.isNotBlank() }
                 ?: header.removePrefix("data:").substringBefore(';').ifBlank { "application/octet-stream" }
+            val name = withExtension(safeName(fileName), mime)
 
             runOnUiThread {
                 try {
@@ -219,7 +286,7 @@ class MainActivity : Activity() {
                         file.writeBytes(bytes)
                         Uri.fromFile(file)
                     }
-                    Toast.makeText(this@MainActivity, "Saved: $name", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "Saved to Downloads: $name", Toast.LENGTH_LONG).show()
                     if (saved.scheme == "content") {
                         try {
                             startActivity(
@@ -238,13 +305,40 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun failed(fileName: String?) {
             runOnUiThread {
-                Toast.makeText(this@MainActivity, "Could not save ${safeName(fileName)}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, "Could not open ${safeName(fileName)}", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        /** Links to other sites (from window.open) go to the browser / mail / phone app. */
+        @JavascriptInterface
+        fun openExternal(url: String?) {
+            val uri = url?.let { Uri.parse(it) } ?: return
+            if (uri.scheme !in setOf("https", "http", "mailto", "tel")) return
+            runOnUiThread {
+                if (isInternal(uri)) web.loadUrl(uri.toString()) else openExternally(uri)
+            }
+        }
+
+        @JavascriptInterface
+        fun copy(text: String?) {
+            runOnUiThread {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("Casana", text ?: ""))
+                if (Build.VERSION.SDK_INT < 33) {
+                    Toast.makeText(this@MainActivity, "Copied", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
         private fun safeName(name: String?): String {
             val n = (name ?: "").replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
-            return n.ifBlank { "download" }.take(120)
+            return n.ifBlank { "Casana file" }.take(120)
+        }
+
+        private fun withExtension(name: String, mime: String): String {
+            if (name.contains('.')) return name
+            val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: return name
+            return "$name.$ext"
         }
     }
 

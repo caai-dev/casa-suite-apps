@@ -16,8 +16,8 @@ android {
         applicationId = "com.casaaudit.casana"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
     }
 
@@ -36,6 +36,13 @@ android {
             keyPassword = ksPass
         }
         buildTypes.getByName("debug").signingConfig = casa
+    }
+
+    // Shared code for both CASA apps (update checker).
+    sourceSets {
+        getByName("main") {
+            java.srcDir("../../../common/android")
+        }
     }
 
     compileOptions {

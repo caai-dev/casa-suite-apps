@@ -9,7 +9,7 @@
     <AssemblyName>CASA Suite</AssemblyName>
     <RootNamespace>CasaSuite</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="..\..\shared\test.html" LogicalName="test.html" />
+    <Compile Include="..\..\common\windows\Updater.cs" Link="Updater.cs" />
   </ItemGroup>
 
 </Project>

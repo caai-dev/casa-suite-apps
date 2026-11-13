@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using CasaApps;
 
 namespace CasaSuite;
 
@@ -25,6 +26,7 @@ internal sealed class MainForm : Form
 
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
     private readonly bool _test;
+    private Updater? _updater;
 
     public MainForm(string[] args)
     {
@@ -46,8 +48,9 @@ internal sealed class MainForm : Form
 
     private async Task InitAsync()
     {
-        var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CASASuite", "WebView2");
+        var appDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CASASuite");
+        var dataDir = Path.Combine(appDir, "WebView2");
         var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
         await _web.EnsureCoreWebView2Async(env);
         var core = _web.CoreWebView2;
@@ -93,7 +96,13 @@ internal sealed class MainForm : Form
 
         if (!_test)
         {
-            core.Navigate(LiveUrl);
+            // Always ask the server for the page itself, so a new Publish shows up at once.
+            core.NavigateWithWebResourceRequest(
+                env.CreateWebResourceRequest(LiveUrl, "GET", null, "Cache-Control: no-cache"));
+
+            // "New update available" card for this app (see common/windows/Updater.cs).
+            _updater = new Updater(this, "casa-suite", "CASA Suite", appDir);
+            _ = _updater.CheckAsync();
         }
         else
         {
