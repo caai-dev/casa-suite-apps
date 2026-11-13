@@ -9,7 +9,7 @@
     <AssemblyName>CASA Suite</AssemblyName>
     <RootNamespace>CasaSuite</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
