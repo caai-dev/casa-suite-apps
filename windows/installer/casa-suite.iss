@@ -1,7 +1,7 @@
 ; CASA Suite installer (per-user, no admin needed)
 #define AppVer GetEnv("CASA_VERSION")
 #if AppVer == ""
-  #define AppVer "1.0.0"
+  #define AppVer "1.1.0"
 #endif
 
 [Setup]

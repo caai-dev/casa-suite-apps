@@ -5,7 +5,7 @@ plugins {
 
 // CASA_START env var overrides the first page. Default = live CASA Suite.
 val startUrl: String = System.getenv("CASA_START")?.takeIf { it.isNotBlank() }
-    ?: "https://casa-suite-protocol.apper.so"
+    ?: "https://kinetic-casa-suite.apper.so"
 
 android {
     namespace = "com.casaaudit.suite"
@@ -15,8 +15,8 @@ android {
         applicationId = "com.casaaudit.suite"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "1.1"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
     }
 
