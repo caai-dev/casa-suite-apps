@@ -12,6 +12,8 @@ AppPublisher=CASA Audit Group
 DefaultDirName={localappdata}\Programs\CASA Suite
 DefaultGroupName=CASA Suite
 DisableProgramGroupPage=yes
+; Always install in the per-user Programs folder; staff never pick a folder.
+DisableDirPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\..\out-installer
 OutputBaseFilename=CASA-Suite-Setup
