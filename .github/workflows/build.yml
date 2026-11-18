@@ -123,6 +123,8 @@ jobs:
           path: out-installer/Casana-Setup.exe
 
   release:
+    # Only main publishes the apps to everyone; other branches just build test copies (Actions -> run -> Artifacts).
+    if: github.ref == 'refs/heads/main'
     needs: [android, windows, casana-android, casana-windows]
     runs-on: ubuntu-latest
     permissions:

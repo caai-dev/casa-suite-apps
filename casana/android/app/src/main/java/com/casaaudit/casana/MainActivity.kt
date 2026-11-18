@@ -1,12 +1,18 @@
 package com.casaaudit.casana
 
+import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -40,6 +46,8 @@ import java.io.File
  *  - navigator.clipboard.writeText copies to the phone clipboard
  *  - Casana links from other apps (CASA Suite) open here
  *  - a "new update available" card when a newer Casana app is published
+ *  - phone notifications asked for by the page (window.CasanaAndroid.notify), 18 Nov 2026:
+ *    shown while Casana is open or in the background; a tap opens the link inside Casana
  */
 class MainActivity : Activity() {
 
@@ -58,6 +66,8 @@ class MainActivity : Activity() {
         web = WebView(this)
         setContentView(web)
         updater = UpdateChecker(this, "casana", "Casana", BuildConfig.VERSION_CODE)
+        ensureChannel()
+        askNotificationPermission()
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -141,6 +151,26 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         linkFrom(intent)?.let { loadFresh(it) }
+    }
+
+    private fun ensureChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        if (nm.getNotificationChannel(CHANNEL) != null) return
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL, "Casana activity", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Mentions, comments and tasks given to you"
+            }
+        )
+    }
+
+    /** Android 13+ asks once whether Casana may show notifications. */
+    private fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFY_REQUEST)
+        }
     }
 
     /** Always ask the server for the page itself, so a new Publish shows up at once. */
@@ -319,6 +349,45 @@ class MainActivity : Activity() {
             }
         }
 
+        /** A phone notification for a new Casana notice. A tap opens the link inside Casana. */
+        @JavascriptInterface
+        fun notify(title: String?, body: String?, url: String?) {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) return
+            val target = url?.let { Uri.parse(it) }?.takeIf { isInternal(it) } ?: Uri.parse(BuildConfig.START_URL)
+            val open = Intent(this@MainActivity, MainActivity::class.java)
+                .setAction(Intent.ACTION_VIEW)
+                .setData(target)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val id = nextNotificationId++
+            val tap = PendingIntent.getActivity(
+                this@MainActivity, id, open,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val text = body ?: ""
+            @Suppress("DEPRECATION")
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this@MainActivity, CHANNEL)
+            } else {
+                Notification.Builder(this@MainActivity).setPriority(Notification.PRIORITY_HIGH)
+            }
+            val n = builder
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle((title ?: "Casana").take(120))
+                .setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
+                .setAutoCancel(true)
+                .setContentIntent(tap)
+                .build()
+            runOnUiThread {
+                try {
+                    getSystemService(NotificationManager::class.java)?.notify(id, n)
+                } catch (_: Exception) {
+                }
+            }
+        }
+
         @JavascriptInterface
         fun copy(text: String?) {
             runOnUiThread {
@@ -354,5 +423,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val FILE_REQUEST = 4101
+        private const val NOTIFY_REQUEST = 4102
+        private const val CHANNEL = "casana_activity"
+        private var nextNotificationId = 1000
     }
 }
