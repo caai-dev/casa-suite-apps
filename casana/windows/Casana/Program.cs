@@ -5,6 +5,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using CasaApps;
 using Microsoft.Toolkit.Uwp.Notifications;
+using Microsoft.Win32;
 
 namespace Casana;
 
@@ -84,12 +85,29 @@ internal sealed class MainForm : Form
 
     // The running window, for toast clicks (they arrive on another thread). A link clicked before the page is ready waits here.
     private static MainForm? _instance;
+
+    // Started by Windows at sign-in ("--tray"): open hidden in the tray, no window (19 Nov 2026).
+    private readonly bool _startHidden;
     private static string? _pendingUrl;
 
     public MainForm(string[] args)
     {
         _startUrl = StartUrlFrom(args);
         _instance = this;
+        _startHidden = args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
+        if (_startHidden)
+        {
+            Opacity = 0;
+            ShowInTaskbar = false;
+        }
+        Shown += (_, _) =>
+        {
+            if (!_startHidden) return;
+            Hide();
+            Opacity = 1;
+            ShowInTaskbar = true;
+        };
+        RegisterStartup();
         Text = "Casana";
         Width = 1360;
         Height = 860;
@@ -127,8 +145,31 @@ internal sealed class MainForm : Form
         _tray.Visible = true;
     }
 
+    // Casana starts with Windows, quietly in the tray (like Teams), so laptop notifications arrive without opening it.
+    // Written by the app too (not only the installer), so copies started from another folder also get it. If the
+    // person switched Casana off in Windows Settings > Apps > Startup, Windows keeps it off (a separate flag).
+    private static void RegisterStartup()
+    {
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe)) return;
+            var value = "\"" + exe + "\" --tray";
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
+            if (key == null) return;
+            if (!string.Equals(key.GetValue("Casana") as string, value, StringComparison.OrdinalIgnoreCase))
+                key.SetValue("Casana", value);
+        }
+        catch
+        {
+            // No access to the user's startup list: Casana just does not start with Windows.
+        }
+    }
+
     private void ShowFromTray()
     {
+        if (Opacity < 1) Opacity = 1;
+        if (!ShowInTaskbar) ShowInTaskbar = true;
         if (!Visible) Show();
         if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
         Activate();

@@ -41,6 +41,9 @@ Root: HKCU; Subkey: "Software\Classes\casana"; ValueType: string; ValueName: "";
 Root: HKCU; Subkey: "Software\Classes\casana"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\casana\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Casana.exe"",0"
 Root: HKCU; Subkey: "Software\Classes\casana\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Casana.exe"" ""%1"""
+; Start with Windows, quietly in the tray, so notifications arrive without opening Casana (19 Nov 2026).
+; People can switch it off in Windows Settings > Apps > Startup. Removed on uninstall.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Casana"; ValueData: """{app}\Casana.exe"" --tray"; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\Casana.exe"; Description: "Open Casana now"; Flags: nowait postinstall skipifsilent
