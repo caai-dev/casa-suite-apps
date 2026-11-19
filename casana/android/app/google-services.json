@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "78244585671",
+    "project_id": "casana-e73c6",
+    "storage_bucket": "casana-e73c6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:78244585671:android:57ce2688a1b0f7f5891ee2",
+        "android_client_info": {
+          "package_name": "com.casaaudit.casana"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNk8VypLKvKwv987L90ETZroAI6gj5yTs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

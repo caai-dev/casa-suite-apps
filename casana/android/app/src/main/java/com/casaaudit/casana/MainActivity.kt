@@ -1,12 +1,18 @@
 package com.casaaudit.casana
 
+import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,6 +30,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import com.casaaudit.common.UpdateChecker
+import com.google.firebase.messaging.FirebaseMessaging
 import java.io.File
 
 /**
@@ -40,12 +47,20 @@ import java.io.File
  *  - navigator.clipboard.writeText copies to the phone clipboard
  *  - Casana links from other apps (CASA Suite) open here
  *  - a "new update available" card when a newer Casana app is published
+ *  - phone notifications asked for by the page (window.CasanaAndroid.notify), 18 Nov 2026:
+ *    shown while Casana is open or in the background; a tap opens the link inside Casana
+ *  - push notifications from the server through Firebase (19 Nov 2026): arrive even when Casana is closed.
+ *    The page reads this phone's token (window.CasanaAndroid.pushToken) and registers it for the login;
+ *    Android shows the notification itself and a tap opens its link (extra "url") inside Casana.
  */
 class MainActivity : Activity() {
 
     private lateinit var web: WebView
     private lateinit var updater: UpdateChecker
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+    // This phone's Firebase token ("" until Firebase answers, or if Firebase is not set up in this build).
+    @Volatile private var pushToken: String = ""
 
     // Pages allowed to stay inside the app. Everything else opens in the browser.
     private val allowedHosts = setOf("apex-casa-workdesk.apper.so")
@@ -58,6 +73,9 @@ class MainActivity : Activity() {
         web = WebView(this)
         setContentView(web)
         updater = UpdateChecker(this, "casana", "Casana", BuildConfig.VERSION_CODE)
+        ensureChannel()
+        askNotificationPermission()
+        fetchPushToken()
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -136,11 +154,49 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updater.check()
+        if (pushToken.isBlank()) fetchPushToken()
+    }
+
+    /** Asks Firebase for this phone's token and tells the page when it is known. Never crashes the app. */
+    private fun fetchPushToken() {
+        try {
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                val t = if (task.isSuccessful) task.result else null
+                if (!t.isNullOrBlank() && t != pushToken) {
+                    pushToken = t
+                    runOnUiThread {
+                        web.evaluateJavascript("window.dispatchEvent(new Event('casana:push-token'))", null)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Firebase not available in this build: the page keeps its in-app notifications.
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         linkFrom(intent)?.let { loadFresh(it) }
+    }
+
+    private fun ensureChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        if (nm.getNotificationChannel(CHANNEL) != null) return
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL, "Casana activity", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Mentions, comments and tasks given to you"
+            }
+        )
+    }
+
+    /** Android 13+ asks once whether Casana may show notifications. */
+    private fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFY_REQUEST)
+        }
     }
 
     /** Always ask the server for the page itself, so a new Publish shows up at once. */
@@ -150,8 +206,12 @@ class MainActivity : Activity() {
 
     /** A Casana https link this app was opened with (from CASA Suite or another app). */
     private fun linkFrom(intent: Intent?): String? {
-        val data = intent?.data ?: return null
-        return if (intent.action == Intent.ACTION_VIEW && isInternal(data)) data.toString() else null
+        if (intent == null) return null
+        val data = intent.data
+        if (data != null && intent.action == Intent.ACTION_VIEW && isInternal(data)) return data.toString()
+        // A tap on a push notification shown by Android: its link comes as the extra "url".
+        val pushed = intent.getStringExtra("url")?.let { Uri.parse(it) }
+        return if (pushed != null && isInternal(pushed)) pushed.toString() else null
     }
 
     /**
@@ -319,6 +379,63 @@ class MainActivity : Activity() {
             }
         }
 
+        /** This phone's Firebase token for push notifications, or "" when not known yet. */
+        @JavascriptInterface
+        fun pushToken(): String = this@MainActivity.pushToken
+
+        /** True when push notifications can reach this phone (token known and notifications allowed). */
+        @JavascriptInterface
+        fun hasPush(): Boolean {
+            if (this@MainActivity.pushToken.isBlank()) return false
+            return try {
+                getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        @JavascriptInterface
+        fun appVersion(): String = BuildConfig.VERSION_NAME
+
+        /** A phone notification for a new Casana notice. A tap opens the link inside Casana. */
+        @JavascriptInterface
+        fun notify(title: String?, body: String?, url: String?) {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) return
+            val target = url?.let { Uri.parse(it) }?.takeIf { isInternal(it) } ?: Uri.parse(BuildConfig.START_URL)
+            val open = Intent(this@MainActivity, MainActivity::class.java)
+                .setAction(Intent.ACTION_VIEW)
+                .setData(target)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val id = nextNotificationId++
+            val tap = PendingIntent.getActivity(
+                this@MainActivity, id, open,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val text = body ?: ""
+            @Suppress("DEPRECATION")
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this@MainActivity, CHANNEL)
+            } else {
+                Notification.Builder(this@MainActivity).setPriority(Notification.PRIORITY_HIGH)
+            }
+            val n = builder
+                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setContentTitle((title ?: "Casana").take(120))
+                .setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
+                .setAutoCancel(true)
+                .setContentIntent(tap)
+                .build()
+            runOnUiThread {
+                try {
+                    getSystemService(NotificationManager::class.java)?.notify(id, n)
+                } catch (_: Exception) {
+                }
+            }
+        }
+
         @JavascriptInterface
         fun copy(text: String?) {
             runOnUiThread {
@@ -354,5 +471,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val FILE_REQUEST = 4101
+        private const val NOTIFY_REQUEST = 4102
+        private const val CHANNEL = "casana_activity"
+        private var nextNotificationId = 1000
     }
 }
