@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using CasaApps;
+using Microsoft.Toolkit.Uwp.Notifications;
 
 namespace Casana;
 
@@ -16,9 +18,27 @@ internal static class Program
         using var single = new Mutex(true, @"Local\CasaAuditGroup.Casana", out var first);
         if (!first)
         {
-            Native.ShowExisting();
+            // The running Casana may be hidden in the tray (no window handle to bring forward): ask it to show itself.
+            try
+            {
+                using var show = EventWaitHandle.OpenExisting(MainForm.ShowSignalName);
+                show.Set();
+            }
+            catch
+            {
+                Native.ShowExisting();
+            }
             return;
         }
+
+        // A click on a Casana toast (popup or Notification Center) opens its link in Casana (19 Nov 2026).
+        // Windows calls this in the running app; if Casana was quit, Windows starts it and then calls this.
+        ToastNotificationManagerCompat.OnActivated += toast =>
+        {
+            string? url = null;
+            try { ToastArguments.Parse(toast.Argument).TryGetValue("url", out url); } catch { }
+            MainForm.OpenFromToast(url);
+        };
 
         ApplicationConfiguration.Initialize();
         Application.Run(new MainForm(args));
@@ -49,13 +69,27 @@ internal sealed class MainForm : Form
     private const string Host = "apex-casa-workdesk.apper.so";
     private const string LiveUrl = "https://" + Host;
 
+    public const string ShowSignalName = @"Local\CasaAuditGroup.Casana.Show";
+
     private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
     private readonly string _startUrl;
     private Updater? _updater;
 
+    // Tray icon: closing the window keeps Casana running here, so notifications still arrive (18 Nov 2026).
+    private readonly NotifyIcon _tray = new();
+    private string _notifyUrl = LiveUrl;
+    private bool _quitting;
+    private bool _toldAboutTray;
+    private readonly EventWaitHandle _showSignal = new(false, EventResetMode.AutoReset, ShowSignalName);
+
+    // The running window, for toast clicks (they arrive on another thread). A link clicked before the page is ready waits here.
+    private static MainForm? _instance;
+    private static string? _pendingUrl;
+
     public MainForm(string[] args)
     {
         _startUrl = StartUrlFrom(args);
+        _instance = this;
         Text = "Casana";
         Width = 1360;
         Height = 860;
@@ -63,6 +97,129 @@ internal sealed class MainForm : Form
         try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
         Controls.Add(_web);
         Load += async (_, _) => await InitAsync();
+        SetUpTray();
+        FormClosing += OnFormClosing;
+        // A second start of Casana (Start menu, CASA Suite) brings this window back.
+        var waiter = new Thread(() =>
+        {
+            while (_showSignal.WaitOne())
+            {
+                try { BeginInvoke(ShowFromTray); } catch { return; }
+            }
+        }) { IsBackground = true };
+        waiter.Start();
+    }
+
+    private void SetUpTray()
+    {
+        try { _tray.Icon = Icon ?? SystemIcons.Application; } catch { _tray.Icon = SystemIcons.Application; }
+        _tray.Text = "Casana";
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Open Casana", null, (_, _) => ShowFromTray());
+        menu.Items.Add("Quit Casana", null, (_, _) => Quit());
+        _tray.ContextMenuStrip = menu;
+        _tray.DoubleClick += (_, _) => ShowFromTray();
+        _tray.BalloonTipClicked += (_, _) =>
+        {
+            ShowFromTray();
+            if (IsTrusted(_notifyUrl)) _web.CoreWebView2?.Navigate(_notifyUrl);
+        };
+        _tray.Visible = true;
+    }
+
+    private void ShowFromTray()
+    {
+        if (!Visible) Show();
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        Activate();
+        BringToFront();
+    }
+
+    private void Quit()
+    {
+        _quitting = true;
+        _tray.Visible = false;
+        Application.Exit();
+    }
+
+    // The X button hides Casana to the tray (like WhatsApp desktop). Quit from the tray menu, a shutdown or an update closes it.
+    private void OnFormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (_quitting || e.CloseReason != CloseReason.UserClosing)
+        {
+            _tray.Visible = false;
+            return;
+        }
+        e.Cancel = true;
+        Hide();
+        if (!_toldAboutTray)
+        {
+            _toldAboutTray = true;
+            ShowToast("Casana is still running", "You will keep getting notifications. Right-click the Casana icon in the tray to quit.", null);
+        }
+    }
+
+    // A notification asked for by the Casana page: {"type":"casana-notify","title":"...","body":"...","url":"https://..."}.
+    private void OnWebMessage(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("type", out var type) || type.GetString() != "casana-notify") return;
+            var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "Casana" : "Casana";
+            var body = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
+            var url = root.TryGetProperty("url", out var u) ? u.GetString() : null;
+            _notifyUrl = IsTrusted(url) ? url! : LiveUrl;
+            if (title.Length > 63) title = title[..60] + "...";
+            if (body.Length > 250) body = body[..247] + "...";
+            ShowToast(title, string.IsNullOrWhiteSpace(body) ? "Open Casana to see it." : body, _notifyUrl);
+        }
+        catch
+        {
+            // Not a notification message: ignore.
+        }
+    }
+
+    // A Windows toast: a popup with sound that stays in Notification Center (19 Nov 2026). The old tray balloon went
+    // only to Notification Center on Windows 11 (no popup); it stays as the fallback if toasts are not available.
+    private void ShowToast(string title, string body, string? url)
+    {
+        try
+        {
+            var toast = new ToastContentBuilder().AddText(title).AddText(body);
+            if (IsTrusted(url)) toast.AddArgument("url", url!);
+            toast.Show();
+        }
+        catch
+        {
+            try { _tray.ShowBalloonTip(8000, title, body, ToolTipIcon.None); } catch { }
+        }
+    }
+
+    // Called by a toast click (any thread): bring Casana forward and open the link.
+    public static void OpenFromToast(string? url)
+    {
+        var form = _instance;
+        var target = IsTrusted(url) ? url : null;
+        if (form == null || !form.IsHandleCreated)
+        {
+            _pendingUrl = target;
+            return;
+        }
+        try
+        {
+            form.BeginInvoke(() =>
+            {
+                form.ShowFromTray();
+                if (target == null) return;
+                if (form._web.CoreWebView2 != null) form._web.CoreWebView2.Navigate(target);
+                else _pendingUrl = target;
+            });
+        }
+        catch
+        {
+        }
     }
 
     // A Casana https link opens that page; casana:// (from CASA Suite) opens the home page.
@@ -111,11 +268,21 @@ internal sealed class MainForm : Form
             else OpenExternal(e.Uri);
         };
 
+        // Notifications from the Casana page (see OnWebMessage). Only from Casana pages.
+        core.WebMessageReceived += (_, e) =>
+        {
+            if (!IsTrusted(e.Source)) return;
+            string? text = null;
+            try { text = e.TryGetWebMessageAsString(); } catch { }
+            if (text != null) OnWebMessage(text);
+        };
+
         // File pickers (attachments), downloads (exports, backups) and copy to
         // clipboard are handled by WebView2 itself, like in Edge.
         // Always ask the server for the page itself, so a new Publish shows up at once.
         core.NavigateWithWebResourceRequest(
-            env.CreateWebResourceRequest(_startUrl, "GET", null, "Cache-Control: no-cache"));
+            env.CreateWebResourceRequest(_pendingUrl ?? _startUrl, "GET", null, "Cache-Control: no-cache"));
+        _pendingUrl = null;
 
         // "New update available" card for this app (see common/windows/Updater.cs).
         _updater = new Updater(this, "casana", "Casana", appDir);
