@@ -12,6 +12,14 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
 
+        <!-- Push notifications sent by the server (Firebase) use the same channel and icon as before. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="casana_activity" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@android:drawable/stat_notify_chat" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

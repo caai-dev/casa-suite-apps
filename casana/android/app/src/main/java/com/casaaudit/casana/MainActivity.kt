@@ -30,6 +30,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import com.casaaudit.common.UpdateChecker
+import com.google.firebase.messaging.FirebaseMessaging
 import java.io.File
 
 /**
@@ -48,12 +49,18 @@ import java.io.File
  *  - a "new update available" card when a newer Casana app is published
  *  - phone notifications asked for by the page (window.CasanaAndroid.notify), 18 Nov 2026:
  *    shown while Casana is open or in the background; a tap opens the link inside Casana
+ *  - push notifications from the server through Firebase (19 Nov 2026): arrive even when Casana is closed.
+ *    The page reads this phone's token (window.CasanaAndroid.pushToken) and registers it for the login;
+ *    Android shows the notification itself and a tap opens its link (extra "url") inside Casana.
  */
 class MainActivity : Activity() {
 
     private lateinit var web: WebView
     private lateinit var updater: UpdateChecker
     private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+    // This phone's Firebase token ("" until Firebase answers, or if Firebase is not set up in this build).
+    @Volatile private var pushToken: String = ""
 
     // Pages allowed to stay inside the app. Everything else opens in the browser.
     private val allowedHosts = setOf("apex-casa-workdesk.apper.so")
@@ -68,6 +75,7 @@ class MainActivity : Activity() {
         updater = UpdateChecker(this, "casana", "Casana", BuildConfig.VERSION_CODE)
         ensureChannel()
         askNotificationPermission()
+        fetchPushToken()
 
         web.settings.apply {
             javaScriptEnabled = true
@@ -146,6 +154,24 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updater.check()
+        if (pushToken.isBlank()) fetchPushToken()
+    }
+
+    /** Asks Firebase for this phone's token and tells the page when it is known. Never crashes the app. */
+    private fun fetchPushToken() {
+        try {
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                val t = if (task.isSuccessful) task.result else null
+                if (!t.isNullOrBlank() && t != pushToken) {
+                    pushToken = t
+                    runOnUiThread {
+                        web.evaluateJavascript("window.dispatchEvent(new Event('casana:push-token'))", null)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Firebase not available in this build: the page keeps its in-app notifications.
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -180,8 +206,12 @@ class MainActivity : Activity() {
 
     /** A Casana https link this app was opened with (from CASA Suite or another app). */
     private fun linkFrom(intent: Intent?): String? {
-        val data = intent?.data ?: return null
-        return if (intent.action == Intent.ACTION_VIEW && isInternal(data)) data.toString() else null
+        if (intent == null) return null
+        val data = intent.data
+        if (data != null && intent.action == Intent.ACTION_VIEW && isInternal(data)) return data.toString()
+        // A tap on a push notification shown by Android: its link comes as the extra "url".
+        val pushed = intent.getStringExtra("url")?.let { Uri.parse(it) }
+        return if (pushed != null && isInternal(pushed)) pushed.toString() else null
     }
 
     /**
@@ -348,6 +378,24 @@ class MainActivity : Activity() {
                 if (isInternal(uri)) web.loadUrl(uri.toString()) else openExternally(uri)
             }
         }
+
+        /** This phone's Firebase token for push notifications, or "" when not known yet. */
+        @JavascriptInterface
+        fun pushToken(): String = this@MainActivity.pushToken
+
+        /** True when push notifications can reach this phone (token known and notifications allowed). */
+        @JavascriptInterface
+        fun hasPush(): Boolean {
+            if (this@MainActivity.pushToken.isBlank()) return false
+            return try {
+                getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() == true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        @JavascriptInterface
+        fun appVersion(): String = BuildConfig.VERSION_NAME
 
         /** A phone notification for a new Casana notice. A tap opens the link inside Casana. */
         @JavascriptInterface

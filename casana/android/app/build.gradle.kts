@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // Firebase Cloud Messaging (19 Nov 2026): reads app/google-services.json (project casana-e73c6).
+    id("com.google.gms.google-services")
 }
 
 // CASANA_START env var overrides the first page. Default = live Casana.
@@ -16,8 +18,8 @@ android {
         applicationId = "com.casaaudit.casana"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
         buildConfigField("String", "START_URL", "\"$startUrl\"")
     }
 
@@ -52,4 +54,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+dependencies {
+    // Phone push even when Casana is closed (19 Nov 2026).
+    implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
+    implementation("com.google.firebase:firebase-messaging")
 }
