@@ -1,7 +1,7 @@
 ; Casana installer (per-user, no admin needed)
 #define AppVer GetEnv("CASANA_VERSION")
 #if AppVer == ""
-  #define AppVer "1.1.0"
+  #define AppVer "1.5.0"
 #endif
 
 [Setup]

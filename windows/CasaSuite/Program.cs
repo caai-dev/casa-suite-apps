@@ -35,7 +35,8 @@ internal sealed class MainForm : Form
         Width = 1280;
         Height = 820;
         StartPosition = FormStartPosition.CenterScreen;
-        try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
+        // Full-size window icon (the taskbar shows it at 32-48 px); the small 32 px one looked blurry.
+        try { Icon = Icon.ExtractIcon(Environment.ProcessPath!, 0, 256) ?? Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
         Controls.Add(_web);
         Load += async (_, _) => await InitAsync();
     }

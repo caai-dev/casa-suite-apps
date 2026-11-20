@@ -112,7 +112,8 @@ internal sealed class MainForm : Form
         Width = 1360;
         Height = 860;
         StartPosition = FormStartPosition.CenterScreen;
-        try { Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
+        // Full-size window icon (the taskbar shows it at 32-48 px); the small 32 px one looked blurry.
+        try { Icon = Icon.ExtractIcon(Environment.ProcessPath!, 0, 256) ?? Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
         Controls.Add(_web);
         Load += async (_, _) => await InitAsync();
         SetUpTray();
@@ -130,7 +131,8 @@ internal sealed class MainForm : Form
 
     private void SetUpTray()
     {
-        try { _tray.Icon = Icon ?? SystemIcons.Application; } catch { _tray.Icon = SystemIcons.Application; }
+        try { _tray.Icon = Icon.ExtractIcon(Environment.ProcessPath!, 0, SystemInformation.SmallIconSize.Width) ?? Icon ?? SystemIcons.Application; }
+        catch { _tray.Icon = Icon ?? SystemIcons.Application; }
         _tray.Text = "Casana";
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open Casana", null, (_, _) => ShowFromTray());

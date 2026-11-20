@@ -11,7 +11,7 @@
     <AssemblyName>Casana</AssemblyName>
     <RootNamespace>Casana</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
