@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- CASA green: the colour Android gives the notification icon when a notification is opened. -->
+    <color name="casa_green">#105C22</color>
+</resources>

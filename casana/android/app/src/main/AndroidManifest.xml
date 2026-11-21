@@ -12,13 +12,17 @@
         android:usesCleartextTraffic="false"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
 
-        <!-- Push notifications sent by the server (Firebase) use the same channel and icon as before. -->
+        <!-- Push notifications sent by the server (Firebase) use the same channel as before.
+             Icon (21 Nov 2026, bhaiya): the Casana logo's shape instead of Android's chat bubble, in CASA green. -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="casana_activity" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@android:drawable/stat_notify_chat" />
+            android:resource="@drawable/ic_stat_casana" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/casa_green" />
 
         <activity
             android:name=".MainActivity"

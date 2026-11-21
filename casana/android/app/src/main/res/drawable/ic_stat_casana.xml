@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon for Casana notifications (21 Nov 2026, bhaiya): the Casana logo's ring and three dots.
+     Android shows this icon in one colour only, so it is a white shape on transparent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M0.50,12.00A11.5,11.5 0,1 1,23.50,12.00A11.5,11.5 0,1 1,0.50,12.00ZM2.40,12.00A9.6,9.6 0,1 1,21.60,12.00A9.6,9.6 0,1 1,2.40,12.00Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M5.30,15.10A2.0,2.0 0,1 1,9.30,15.10A2.0,2.0 0,1 1,5.30,15.10ZM6.25,15.10A1.05,1.05 0,1 1,8.35,15.10A1.05,1.05 0,1 1,6.25,15.10Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M9.60,11.90A2.0,2.0 0,1 1,13.60,11.90A2.0,2.0 0,1 1,9.60,11.90ZM11.6,10.85A1.05,1.05 0,0 1,11.6,12.950000000000001Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M13.80,8.20A2.6,2.6 0,1 1,19.00,8.20A2.6,2.6 0,1 1,13.80,8.20ZM14.849999999999998,8.35L15.45,7.749999999999999L16.099999999999998,8.399999999999999L17.349999999999998,7.1499999999999995L17.95,7.749999999999999L16.099999999999998,9.6Z" />
+</vector>

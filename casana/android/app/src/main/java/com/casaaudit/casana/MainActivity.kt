@@ -421,7 +421,8 @@ class MainActivity : Activity() {
                 Notification.Builder(this@MainActivity).setPriority(Notification.PRIORITY_HIGH)
             }
             val n = builder
-                .setSmallIcon(android.R.drawable.stat_notify_chat)
+                .setSmallIcon(R.drawable.ic_stat_casana)
+                .setColor(0xFF105C22.toInt())
                 .setContentTitle((title ?: "Casana").take(120))
                 .setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))
