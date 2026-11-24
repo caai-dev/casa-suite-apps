@@ -41,6 +41,12 @@ internal static class Program
             MainForm.OpenFromToast(url);
         };
 
+        // An error never shows .NET's "Unhandled exception" box (24 Nov 2026: Continue there left Casana stuck in the
+        // tray with no page). It is written to %LocalAppData%\Casana\errors.log instead.
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, e) => MainForm.LogError("ui", e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => MainForm.LogError("app", e.ExceptionObject as Exception);
+
         ApplicationConfiguration.Initialize();
         Application.Run(new MainForm(args));
     }
@@ -72,7 +78,12 @@ internal sealed class MainForm : Form
 
     public const string ShowSignalName = @"Local\CasaAuditGroup.Casana.Show";
 
-    private readonly WebView2 _web = new() { Dock = DockStyle.Fill };
+    private WebView2 _web = new() { Dock = DockStyle.Fill };
+    // The page area is ready (WebView2 started). Start is tried up to 3 times (24 Nov 2026).
+    private bool _webReady;
+    private bool _starting;
+    // The person opened the window (tray, Start menu, toast) while Casana was still starting hidden.
+    private bool _userShown;
     private readonly string _startUrl;
     private Updater? _updater;
 
@@ -95,18 +106,11 @@ internal sealed class MainForm : Form
         _startUrl = StartUrlFrom(args);
         _instance = this;
         _startHidden = args.Any(a => string.Equals(a, "--tray", StringComparison.OrdinalIgnoreCase));
-        if (_startHidden)
-        {
-            Opacity = 0;
-            ShowInTaskbar = false;
-        }
-        Shown += (_, _) =>
-        {
-            if (!_startHidden) return;
-            Hide();
-            Opacity = 1;
-            ShowInTaskbar = true;
-        };
+        // 24 Nov 2026 (launch day): the window used to be hidden and ShowInTaskbar switched while WebView2 was still
+        // starting. Changing ShowInTaskbar makes Windows build the window again, which aborted WebView2's start
+        // (Operation aborted, E_ABORT): .NET's error box, then a tray icon with no page. Now the window only goes
+        // invisible (Opacity 0) and is hidden after WebView2 has started; ShowInTaskbar is never changed.
+        if (_startHidden) Opacity = 0;
         RegisterStartup();
         Text = "Casana";
         Width = 1360;
@@ -115,7 +119,7 @@ internal sealed class MainForm : Form
         // Full-size window icon (the taskbar shows it at 32-48 px); the small 32 px one looked blurry.
         try { Icon = Icon.ExtractIcon(Environment.ProcessPath!, 0, 256) ?? Icon.ExtractAssociatedIcon(Environment.ProcessPath!); } catch { }
         Controls.Add(_web);
-        Load += async (_, _) => await InitAsync();
+        Load += async (_, _) => await StartWebAsync();
         SetUpTray();
         FormClosing += OnFormClosing;
         // A second start of Casana (Start menu, CASA Suite) brings this window back.
@@ -170,9 +174,11 @@ internal sealed class MainForm : Form
 
     private void ShowFromTray()
     {
+        _userShown = true;
         if (Opacity < 1) Opacity = 1;
-        if (!ShowInTaskbar) ShowInTaskbar = true;
         if (!Visible) Show();
+        // The page did not start earlier (all tries failed): try again now that the person is looking.
+        if (!_webReady && !_starting) _ = StartWebAsync();
         if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
         Activate();
         BringToFront();
@@ -279,6 +285,67 @@ internal sealed class MainForm : Form
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return false;
         return u.Scheme == "https" && u.Host == Host;
+    }
+
+    // Starts the page area, up to 3 tries with a fresh WebView2 each time. Started hidden with Windows: the window
+    // goes to the tray only after this, unless the person opened it meanwhile.
+    private async Task StartWebAsync()
+    {
+        if (_starting || _webReady) return;
+        _starting = true;
+        try
+        {
+            for (var attempt = 1; attempt <= 3 && !_webReady; attempt++)
+            {
+                try
+                {
+                    if (attempt > 1)
+                    {
+                        await Task.Delay(2000 * attempt);
+                        ResetWebView();
+                    }
+                    await InitAsync();
+                    _webReady = true;
+                }
+                catch (Exception ex)
+                {
+                    LogError($"page start, try {attempt}", ex);
+                }
+            }
+        }
+        finally
+        {
+            _starting = false;
+            if (_startHidden && !_userShown && Visible) Hide();
+            if (Opacity < 1) Opacity = 1;
+        }
+    }
+
+    private void ResetWebView()
+    {
+        try
+        {
+            Controls.Remove(_web);
+            _web.Dispose();
+        }
+        catch
+        {
+        }
+        _web = new WebView2 { Dock = DockStyle.Fill };
+        Controls.Add(_web);
+    }
+
+    public static void LogError(string where, Exception? ex)
+    {
+        try
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Casana");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "errors.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{where}] {ex}\r\n");
+        }
+        catch
+        {
+        }
     }
 
     private async Task InitAsync()
