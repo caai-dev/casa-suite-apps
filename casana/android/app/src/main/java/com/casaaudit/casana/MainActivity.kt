@@ -52,6 +52,8 @@ import java.io.File
  *  - push notifications from the server through Firebase (19 Nov 2026): arrive even when Casana is closed.
  *    The page reads this phone's token (window.CasanaAndroid.pushToken) and registers it for the login;
  *    Android shows the notification itself and a tap opens its link (extra "url") inside Casana.
+ *  - from 1.6 (24 Nov 2026) the server sends "data" messages to this version, and CasanaMessagingService builds the
+ *    notification with Like and Reply buttons that open Casana at the comment.
  */
 class MainActivity : Activity() {
 
@@ -144,6 +146,7 @@ class MainActivity : Activity() {
             }
         }
 
+        closeNotificationFrom(intent)
         if (savedInstanceState != null) {
             web.restoreState(savedInstanceState)
         } else {
@@ -176,7 +179,18 @@ class MainActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        closeNotificationFrom(intent)
         linkFrom(intent)?.let { loadFresh(it) }
+    }
+
+    /** A Like or Reply button on a notification (1.6) closes that notification once it has opened Casana. */
+    private fun closeNotificationFrom(intent: Intent?) {
+        val id = intent?.getIntExtra(EXTRA_NOTIFICATION_ID, -1) ?: -1
+        if (id < 0) return
+        try {
+            getSystemService(NotificationManager::class.java)?.cancel(id)
+        } catch (_: Exception) {
+        }
     }
 
     private fun ensureChannel() {
@@ -474,6 +488,7 @@ class MainActivity : Activity() {
         private const val FILE_REQUEST = 4101
         private const val NOTIFY_REQUEST = 4102
         private const val CHANNEL = "casana_activity"
+        const val EXTRA_NOTIFICATION_ID = "casana_notification_id"
         private var nextNotificationId = 1000
     }
 }
