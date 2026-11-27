@@ -56,6 +56,7 @@ import java.io.File
  *    notification with Like and Reply buttons that open Casana at the comment.
  *  - from 1.7 (27 Nov 2026) stay signed in: the page keeps the login in LoginStore (Android Keystore) through
  *    window.CasanaAndroid.saveLogin / getLogin / clearLogin, only on Casana's own pages, and signs in again by itself.
+ *  - 1.7: window.CasanaAndroid.shareImage opens Android's share menu for a celebration card picture.
  */
 class MainActivity : Activity() {
 
@@ -349,6 +350,48 @@ class MainActivity : Activity() {
         @JavascriptInterface
         fun clearLogin() {
             LoginStore.clear(this@MainActivity)
+        }
+
+        /**
+         * Share a celebration card (1.7, 27 Nov 2026): the page sends the card as a PNG (data: URL). It is saved in
+         * Pictures/Casana and Android's share menu opens (WhatsApp chat or status, LinkedIn, Gmail...).
+         * Android 9 and older: the picture is saved to Downloads instead. Casana pages only.
+         */
+        @JavascriptInterface
+        fun shareImage(dataUrl: String?, fileName: String?, text: String?) {
+            if (!trustedPage || dataUrl.isNullOrBlank()) return
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                saveFile(dataUrl, fileName, "image/png")
+                return
+            }
+            val comma = dataUrl.indexOf(',')
+            if (comma < 0) return
+            val bytes = try {
+                Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT)
+            } catch (_: Exception) {
+                failed(fileName); return
+            }
+            val name = withExtension(safeName(fileName), "image/png")
+            runOnUiThread {
+                try {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Casana")
+                    }
+                    val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                        ?: throw IllegalStateException("no uri")
+                    contentResolver.openOutputStream(uri)!!.use { it.write(bytes) }
+                    val send = Intent(Intent.ACTION_SEND)
+                        .setType("image/png")
+                        .putExtra(Intent.EXTRA_STREAM, uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (!text.isNullOrBlank()) send.putExtra(Intent.EXTRA_TEXT, text)
+                    startActivity(Intent.createChooser(send, "Share card"))
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, "Could not share the card", Toast.LENGTH_LONG).show()
+                }
+            }
         }
 
         /** Saves a file the page created (data: URL) to Downloads and opens it. */
