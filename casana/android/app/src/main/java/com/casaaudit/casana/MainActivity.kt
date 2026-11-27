@@ -54,6 +54,8 @@ import java.io.File
  *    Android shows the notification itself and a tap opens its link (extra "url") inside Casana.
  *  - from 1.6 (24 Nov 2026) the server sends "data" messages to this version, and CasanaMessagingService builds the
  *    notification with Like and Reply buttons that open Casana at the comment.
+ *  - from 1.7 (27 Nov 2026) stay signed in: the page keeps the login in LoginStore (Android Keystore) through
+ *    window.CasanaAndroid.saveLogin / getLogin / clearLogin, only on Casana's own pages, and signs in again by itself.
  */
 class MainActivity : Activity() {
 
@@ -69,6 +71,13 @@ class MainActivity : Activity() {
 
     private fun isInternal(uri: Uri): Boolean =
         uri.scheme == "https" && uri.host in allowedHosts
+
+    // Whether the page now in the WebView is Casana's own (the saved login is handed only to it).
+    @Volatile private var trustedPage = false
+
+    private fun markPage(url: String?) {
+        trustedPage = url != null && isInternal(Uri.parse(url))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,10 +110,12 @@ class MainActivity : Activity() {
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                markPage(url)
                 injectShim(view, url)
             }
 
             override fun onPageFinished(view: WebView, url: String?) {
+                markPage(url)
                 injectShim(view, url)
             }
         }
@@ -326,6 +337,20 @@ class MainActivity : Activity() {
     }
 
     inner class Bridge {
+        /** Stay signed in (1.7): keeps Casana's login encrypted on this phone (see LoginStore). Casana pages only. */
+        @JavascriptInterface
+        fun saveLogin(email: String?, password: String?) {
+            if (trustedPage) LoginStore.save(this@MainActivity, email, password)
+        }
+
+        @JavascriptInterface
+        fun getLogin(): String = if (trustedPage) LoginStore.read(this@MainActivity) else ""
+
+        @JavascriptInterface
+        fun clearLogin() {
+            LoginStore.clear(this@MainActivity)
+        }
+
         /** Saves a file the page created (data: URL) to Downloads and opens it. */
         @JavascriptInterface
         fun saveFile(dataUrl: String?, fileName: String?, mimeType: String?) {

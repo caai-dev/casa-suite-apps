@@ -215,6 +215,11 @@ internal sealed class MainForm : Form
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
+            if (root.TryGetProperty("type", out var kind) && kind.GetString() == "casana-login")
+            {
+                OnLoginMessage(root);
+                return;
+            }
             if (!root.TryGetProperty("type", out var type) || type.GetString() != "casana-notify") return;
             var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "Casana" : "Casana";
             var body = root.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
@@ -228,6 +233,37 @@ internal sealed class MainForm : Form
         {
             // Not a notification message: ignore.
         }
+    }
+
+    // Stay signed in (1.7, 27 Nov 2026): the page saves, reads or clears Casana's login kept in LoginStore (DPAPI).
+    // Only Casana's own pages reach this (WebMessageReceived checks the source). The answer goes back to the page.
+    private void OnLoginMessage(JsonElement root)
+    {
+        string Text(string name) => root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        var id = Text("id");
+        var action = Text("action");
+        var reply = new Dictionary<string, object?> { ["type"] = "casana-login-reply", ["id"] = id };
+        if (action == "save")
+        {
+            reply["ok"] = LoginStore.Save(Text("email"), Text("password"));
+        }
+        else if (action == "get")
+        {
+            var (email, password) = LoginStore.Read();
+            reply["ok"] = email != null;
+            reply["email"] = email;
+            reply["password"] = password;
+        }
+        else if (action == "clear")
+        {
+            LoginStore.Clear();
+            reply["ok"] = true;
+        }
+        else
+        {
+            return;
+        }
+        try { _web.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(reply)); } catch { }
     }
 
     // A Windows toast: a popup with sound that stays in Notification Center (19 Nov 2026). The old tray balloon went
@@ -356,6 +392,15 @@ internal sealed class MainForm : Form
         var env = await CoreWebView2Environment.CreateAsync(null, dataDir);
         await _web.EnsureCoreWebView2Async(env);
         var core = _web.CoreWebView2;
+        // 1.7 (27 Nov 2026): offer to save and fill in passwords, as Edge does (WebView2 has this off by default).
+        try
+        {
+            core.Settings.IsPasswordAutosaveEnabled = true;
+            core.Settings.IsGeneralAutofillEnabled = true;
+        }
+        catch
+        {
+        }
 
         // Other sites open in the normal browser; Casana pages stay in this window.
         core.NavigationStarting += (_, e) =>
